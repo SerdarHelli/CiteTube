@@ -1,8 +1,22 @@
-gradio==4.44.0
-youtube-transcript-api==0.6.2
-sentence-transformers==3.0.1
-faiss-cpu==1.8.0
-rank-bm25==0.2.2
-sqlite-utils==3.36
-python-dotenv==1.0.1
-requests==2.32.3
+# Core dependencies
+gradio>=5.0.0
+python-dotenv>=1.0.0
+psycopg2-binary>=2.9.0
+pgvector>=0.4.0
+
+# YouTube transcript processing
+youtube-transcript-api>=0.6.0
+
+# LLM and embeddings
+ollama>=0.3.0
+sentence-transformers>=2.2.0
+
+# Search and ranking
+rank-bm25>=0.2.0
+
+# Data processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Utilities
+pathlib2>=2.3.0

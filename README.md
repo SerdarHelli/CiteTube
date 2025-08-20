@@ -1,132 +1,257 @@
-# CiteTube - YouTube Transcript QA
+# CiteTube
 
-CiteTube is a local application that allows you to ask questions about YouTube videos using their transcripts. The app fetches the transcript, chunks it, builds a vector index, and enables semantic search and question answering with proper citations.
+A local YouTube transcript QA application that uses Ollama for embeddings and language model inference. CiteTube allows you to ask questions about YouTube videos and get answers with precise timestamp citations.
 
 ## Features
 
-- Fetch transcripts from YouTube videos
-- Process and chunk transcripts for optimal retrieval
-- Build FAISS vector index for semantic search
-- Hybrid search combining vector similarity and BM25 keyword search
-- Answer questions with proper timestamp citations
-- User-friendly Gradio interface
+- 🎥 **YouTube Transcript Ingestion**: Automatically fetch and process YouTube video transcripts
+- 🔍 **Hybrid Search**: Combines pgvector similarity search with BM25 keyword search
+- 🤖 **Local LLM**: Uses Ollama for both embeddings and language model inference
+- 📝 **Precise Citations**: Every answer includes timestamp citations
+- 🚀 **Fast Retrieval**: Efficient vector search with PostgreSQL + pgvector
+- 🔄 **Reranking**: Optional cross-encoder reranking for improved results
+
+## Architecture
+
+CiteTube uses a modern RAG (Retrieval-Augmented Generation) architecture:
+
+1. **Ingestion**: YouTube transcripts are fetched, chunked, and embedded using Ollama
+2. **Storage**: Metadata and vectors stored in PostgreSQL with pgvector extension
+3. **Retrieval**: Hybrid search combining semantic (pgvector) and keyword (BM25) search
+4. **Generation**: Ollama LLM generates answers with timestamp citations
+
+## Prerequisites
+
+1. **Python 3.8+**
+2. **Ollama**: Install from [https://ollama.ai/](https://ollama.ai/)
+3. **PostgreSQL 12+** with **pgvector extension**
 
 ## Installation
 
-1. Clone the repository:
-```
-git clone https://github.com/yourusername/CiteTube.git
-cd CiteTube
-```
-
-2. Create a Python virtual environment:
-```
-python -m venv venv
-```
-
-3. Activate the virtual environment:
-   - Windows:
-   ```
-   venv\Scripts\activate
-   ```
-   - macOS/Linux:
-   ```
-   source venv/bin/activate
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd CiteTube
    ```
 
-4. Install the requirements:
-```
-pip install -r requirements.txt
+2. **Create and activate virtual environment**:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install dependencies**:
+   ```bash
+   pip install -e .
+   ```
+
+4. **Install Ollama models**:
+   ```bash
+   python setup_ollama.py
+   ```
+
+   This will install:
+   - `nomic-embed-text`: For text embeddings
+   - `llama3.2`: For question answering
+
+## Configuration
+
+The application uses environment variables defined in `.env`:
+
+```env
+# LLM Configuration (Ollama)
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=llama3.2
+
+# Embedding Models (Ollama)
+EMBEDDING_MODEL=nomic-embed-text
+
+# Reranker Model (sentence-transformers)
+RERANKER_MODEL=BAAI/bge-reranker-base
+
+# Search Configuration
+USE_RERANKER=true
+TOP_K=8
+TEMPERATURE=0.1
+MAX_TOKENS=1024
 ```
 
-5. Copy the example environment file and configure it:
-```
-copy .env.example .env
-```
+### Alternative Models
 
-## Running the Application
+You can use different Ollama models by updating the `.env` file:
 
-### Step 1: Start the vLLM Server
+**LLM Models**:
+- `llama3.1`
+- `mistral`
+- `codellama`
+- `phi3`
 
-You need to have a vLLM server running to use CiteTube. You can start one with:
-
-```
-vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000 --dtype float16
-```
-
-Alternatively, you can use other models like:
-```
-vllm serve Qwen/Qwen2.5-7B-Instruct --port 8000 --dtype float16
-```
-
-### Step 2: Run CiteTube
-
-```
-python app.py
-```
-
-This will start the Gradio interface. Open the provided URL in your browser (typically http://127.0.0.1:7860).
+**Embedding Models**:
+- `mxbai-embed-large`
+- `all-minilm`
 
 ## Usage
 
-1. **Ingest a YouTube Video**:
-   - Paste a YouTube URL in the "Ingest Video" tab
-   - Click "Ingest Video"
-   - Wait for the ingestion process to complete
+### Command Line Interface
 
-2. **Ask Questions**:
-   - Switch to the "Ask Questions" tab
-   - Type your question about the video content
-   - Click "Ask"
-   - View the answer with timestamp citations
+1. **Ingest a YouTube video**:
+   ```python
+   from citetube.ingestion.ingest import ingest_video
+   
+   video_id, metadata = ingest_video("https://www.youtube.com/watch?v=VIDEO_ID")
+   print(f"Ingested video: {metadata['title']}")
+   ```
 
-## How It Works
+2. **Ask questions**:
+   ```python
+   from citetube.retrieval.retrieve import hybrid_search
+   from citetube.llm.llm import answer_question
+   
+   # Search for relevant segments
+   segments = hybrid_search("What is machine learning?", video_id)
+   
+   # Get answer with citations
+   response = answer_question("What is machine learning?", segments)
+   print(response['answer'])
+   ```
 
-1. **Ingestion Pipeline**:
-   - Extract YouTube video ID from URL
-   - Fetch transcript using youtube-transcript-api
-   - Chunk transcript into segments
-   - Embed segments using sentence-transformers (bge-m3)
-   - Build FAISS index for vector search
-   - Store metadata and segments in SQLite
+### Web Interface
 
-2. **Retrieval Pipeline**:
-   - Embed query using the same model
-   - Perform vector search with FAISS
-   - Perform keyword search with BM25
-   - Combine results using Reciprocal Rank Fusion
-   - Optionally rerank with a cross-encoder
+Launch the Streamlit web interface:
 
-3. **Answer Generation**:
-   - Send query and retrieved segments to vLLM
-   - Generate answer with proper citations
-   - Return structured response with answer, bullets, and citations
+```bash
+python -m citetube.ui.app
+```
+
+## Testing
+
+Test the Ollama integration:
+
+```bash
+python test_ollama.py
+```
+
+This will verify that both the embedding model and LLM are working correctly.
 
 ## Project Structure
 
 ```
-citetube/
-├─ app.py                 # Gradio UI
-├─ ingest.py              # fetch transcript, chunk, embed, build FAISS
-├─ retrieve.py            # hybrid BM25 + FAISS + RRF + optional rerank
-├─ llm.py                 # vLLM API client + prompt builder
-├─ db.py                  # SQLite helpers
-├─ models/                # embedding/reranker loaders
-├─ data/
-│  ├─ faiss/              # FAISS indexes
-│  ├─ meta.db             # SQLite database
-│  └─ logs/
-├─ requirements.txt
-├─ .env.example
-└─ README.md
+CiteTube/
+├── src/citetube/
+│   ├── core/           # Core functionality
+│   │   ├── config.py   # Configuration management
+│   │   ├── db.py       # Database operations
+│   │   └── models.py   # Ollama model wrappers
+│   ├── ingestion/      # Video ingestion
+│   │   └── ingest.py   # Transcript fetching and processing
+│   ├── retrieval/      # Search and retrieval
+│   │   └── retrieve.py # Hybrid search implementation
+│   ├── llm/           # Language model interface
+│   │   └── llm.py     # Ollama LLM client
+│   └── ui/            # User interface
+│       └── app.py     # Streamlit web app
+├── data/              # Data storage
+│   ├── faiss/         # FAISS indices
+│   ├── logs/          # Application logs
+│   └── meta.db        # SQLite database
+├── test_ollama.py     # Integration tests
+├── setup_ollama.py    # Model setup script
+└── .env              # Environment configuration
 ```
 
-## Requirements
+## How It Works
 
-- Python 3.10+
-- vLLM server (for LLM inference)
-- Internet connection (for fetching YouTube transcripts)
+### 1. Video Ingestion
+
+```python
+# Extract YouTube ID from URL
+yt_id = extract_youtube_id(url)
+
+# Fetch transcript using YouTube Transcript API
+transcript_items, metadata = fetch_transcript(yt_id)
+
+# Chunk transcript into overlapping segments
+chunks = chunk_transcript(transcript_items)
+
+# Generate embeddings using Ollama
+embeddings = model.encode([chunk["text"] for chunk in chunks])
+
+# Store in database and build FAISS index
+store_segments(video_id, chunks)
+build_faiss_index(video_id, segments)
+```
+
+### 2. Question Answering
+
+```python
+# Hybrid search: FAISS + BM25
+faiss_results = search_faiss(query, video_id)
+bm25_results = search_bm25(query, video_id)
+combined_results = reciprocal_rank_fusion([faiss_results, bm25_results])
+
+# Optional reranking
+reranked_results = rerank_results(query, combined_results)
+
+# Generate answer using Ollama
+response = ollama_client.chat(
+    model="llama3.2",
+    messages=[
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": build_prompt(question, segments)}
+    ]
+)
+```
+
+## Performance
+
+- **Embedding Generation**: ~100-500 tokens/second (depends on model and hardware)
+- **Search**: Sub-second retrieval for most queries
+- **Answer Generation**: 10-50 tokens/second (depends on model and hardware)
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Ollama not found**:
+   - Ensure Ollama is installed and in your PATH
+   - Run `ollama --version` to verify installation
+
+2. **Models not available**:
+   - Run `python setup_ollama.py` to install required models
+   - Check `ollama list` to see installed models
+
+3. **Slow performance**:
+   - Use smaller models (e.g., `llama3.2:1b` instead of `llama3.2`)
+   - Reduce `MAX_TOKENS` in `.env`
+   - Disable reranking by setting `USE_RERANKER=false`
+
+4. **Memory issues**:
+   - Use quantized models
+   - Reduce batch sizes in embedding generation
+   - Close other applications to free up RAM
+
+### Logs
+
+Check application logs in `data/logs/` for detailed error information:
+- `ingest.log`: Video ingestion logs
+- `retrieve.log`: Search and retrieval logs
+- `llm.log`: Language model logs
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
 
 ## License
 
-[MIT License](LICENSE)
+MIT License - see LICENSE file for details.
+
+## Acknowledgments
+
+- [Ollama](https://ollama.ai/) for local LLM inference
+- [FAISS](https://github.com/facebookresearch/faiss) for vector search
+- [YouTube Transcript API](https://github.com/jdepoix/youtube-transcript-api) for transcript fetching
+- [Streamlit](https://streamlit.io/) for the web interface

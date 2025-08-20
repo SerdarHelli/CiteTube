@@ -15,21 +15,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import local modules
-import ingest
-import retrieve
-import llm
-import db
+from ..ingestion import ingest
+from ..retrieval import retrieve
+from ..llm import llm
+from ..core import db
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(Path(__file__).parent / "data" / "logs" / "app.log")
-    ]
-)
-logger = logging.getLogger("app")
+# Import centralized logging config
+from ..core.logging_config import setup_logging
+
+logger = logging.getLogger("citetube.app")
 
 # Global state
 current_video_id = None
@@ -152,58 +146,68 @@ def answer_question(question: str) -> Tuple[str, str, str]:
         return f"Error: {str(e)}", "", ""
 
 # Create Gradio interface
-with gr.Blocks(title="CiteTube - YouTube Transcript QA") as app:
-    gr.Markdown("# 📺 CiteTube - YouTube Transcript QA")
-    gr.Markdown("Ask questions about YouTube videos using their transcripts.")
-    
-    with gr.Tab("Ingest Video"):
-        with gr.Row():
-            youtube_url = gr.Textbox(
-                label="YouTube URL",
-                placeholder="https://www.youtube.com/watch?v=...",
-                scale=4
+def create_app():
+    """Create and return the Gradio app."""
+    with gr.Blocks(title="CiteTube - YouTube Transcript QA") as app:
+        gr.Markdown("# 📺 CiteTube - YouTube Transcript QA")
+        gr.Markdown("Ask questions about YouTube videos using their transcripts.")
+        
+        with gr.Tab("Ingest Video"):
+            with gr.Row():
+                youtube_url = gr.Textbox(
+                    label="YouTube URL",
+                    placeholder="https://www.youtube.com/watch?v=...",
+                    scale=4
+                )
+                ingest_button = gr.Button("Ingest Video", scale=1)
+            
+            ingest_status = gr.Markdown("Paste a YouTube URL and click 'Ingest Video'")
+            video_info = gr.JSON(label="Video Information", visible=False)
+            
+            ingest_button.click(
+                process_youtube_url,
+                inputs=[youtube_url],
+                outputs=[ingest_status, video_info]
             )
-            ingest_button = gr.Button("Ingest Video", scale=1)
         
-        ingest_status = gr.Markdown("Paste a YouTube URL and click 'Ingest Video'")
-        video_info = gr.JSON(label="Video Information", visible=False)
-        
-        ingest_button.click(
-            process_youtube_url,
-            inputs=[youtube_url],
-            outputs=[ingest_status, video_info]
-        )
-    
-    with gr.Tab("Ask Questions"):
-        with gr.Row():
-            question_input = gr.Textbox(
-                label="Question",
-                placeholder="Ask a question about the video...",
-                scale=4
+        with gr.Tab("Ask Questions"):
+            with gr.Row():
+                question_input = gr.Textbox(
+                    label="Question",
+                    placeholder="Ask a question about the video...",
+                    scale=4
+                )
+                ask_button = gr.Button("Ask", scale=1)
+            
+            answer_output = gr.HTML(label="Answer")
+            
+            with gr.Accordion("Debug Information", open=False):
+                debug_info = gr.HTML()
+                raw_response = gr.Textbox(label="Raw LLM Response", lines=10)
+            
+            ask_button.click(
+                answer_question,
+                inputs=[question_input],
+                outputs=[answer_output, debug_info, raw_response]
             )
-            ask_button = gr.Button("Ask", scale=1)
         
-        answer_output = gr.HTML(label="Answer")
+        gr.Markdown("## How to use CiteTube")
+        gr.Markdown("""
+        1. **Ingest a YouTube video**: Paste a YouTube URL and click 'Ingest Video'
+        2. **Ask questions**: Switch to the 'Ask Questions' tab and ask questions about the video content
+        3. **View answers**: The app will retrieve relevant transcript segments and generate an answer with citations
         
-        with gr.Accordion("Debug Information", open=False):
-            debug_info = gr.HTML()
-            raw_response = gr.Textbox(label="Raw LLM Response", lines=10)
-        
-        ask_button.click(
-            answer_question,
-            inputs=[question_input],
-            outputs=[answer_output, debug_info, raw_response]
-        )
+        Note: This app only processes the transcript, not the audio or video content.
+        """)
     
-    gr.Markdown("## How to use CiteTube")
-    gr.Markdown("""
-    1. **Ingest a YouTube video**: Paste a YouTube URL and click 'Ingest Video'
-    2. **Ask questions**: Switch to the 'Ask Questions' tab and ask questions about the video content
-    3. **View answers**: The app will retrieve relevant transcript segments and generate an answer with citations
-    
-    Note: This app only processes the transcript, not the audio or video content.
-    """)
+    return app
 
-# Launch the app
-if __name__ == "__main__":
+# Launch function
+def launch_app():
+    """Launch the Gradio app."""
+    app = create_app()
     app.launch()
+
+# For backward compatibility
+if __name__ == "__main__":
+    launch_app()

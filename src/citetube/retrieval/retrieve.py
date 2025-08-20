@@ -6,31 +6,19 @@ Implements hybrid search combining FAISS and BM25.
 import os
 import logging
 import numpy as np
-import faiss
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union
 from rank_bm25 import BM25Okapi
 import time
 
-from models import get_embedding_model, get_reranker_model, normalize_embedding
-import db
-from ingest import format_timestamp
+from ..core.models import get_embedding_model, get_reranker_model, normalize_embedding
+from ..core import db
+from ..core.config import DEFAULT_TOP_K, DEFAULT_VECTOR_TOP_K, use_reranker
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(Path(__file__).parent / "data" / "logs" / "retrieve.log")
-    ]
-)
-logger = logging.getLogger("retrieve")
+# Import centralized logging config
+from ..core.logging_config import setup_logging
 
-# Constants
-FAISS_DIR = Path(__file__).parent / "data" / "faiss"
-DEFAULT_TOP_K = 8
-USE_RERANKER = os.getenv("USE_RERANKER", "true").lower() in ("true", "1", "yes")
+logger = logging.getLogger("citetube.retrieve")
 
 def reciprocal_rank_fusion(
     results_lists: List[List[int]], 
@@ -68,13 +56,13 @@ def reciprocal_rank_fusion(
     # Return just the document IDs
     return [doc_id for doc_id, _ in sorted_docs]
 
-def search_faiss(
+def search_vector(
     query: str, 
     video_id: int, 
     top_k: int = 30
 ) -> List[int]:
     """
-    Search for segments using FAISS vector similarity.
+    Search for segments using pgvector similarity.
     
     Args:
         query: Search query
@@ -84,31 +72,22 @@ def search_faiss(
     Returns:
         List of segment IDs
     """
-    # Check if FAISS index exists
-    index_path = FAISS_DIR / f"{video_id}.index"
-    if not index_path.exists():
-        logger.error(f"FAISS index not found for video {video_id}")
+    try:
+        # Get embedding model and encode query
+        model = get_embedding_model()
+        query_embedding = model.encode(query)
+        
+        # Normalize query embedding
+        query_embedding = normalize_embedding(query_embedding)
+        
+        # Search using pgvector
+        segment_ids = db.vector_similarity_search(query_embedding, video_id, top_k)
+        
+        return segment_ids
+        
+    except Exception as e:
+        logger.error(f"Vector search failed for video {video_id}: {e}")
         return []
-    
-    # Load FAISS index
-    index = faiss.read_index(str(index_path))
-    
-    # Get embedding model and encode query
-    model = get_embedding_model()
-    query_embedding = model.encode(query)
-    
-    # Normalize query embedding
-    query_embedding = normalize_embedding(query_embedding)
-    query_embedding = np.array([query_embedding], dtype=np.float32)
-    
-    # Search FAISS index
-    scores, indices = index.search(query_embedding, top_k)
-    
-    # Get segment IDs
-    segments = db.get_video_segments(video_id)
-    segment_ids = [segments[idx]["id"] for idx in indices[0]]
-    
-    return segment_ids
 
 def search_bm25(
     query: str, 
@@ -164,7 +143,7 @@ def rerank_results(
     Returns:
         Reranked list of segment IDs
     """
-    if not USE_RERANKER or not segment_ids:
+    if not use_reranker() or not segment_ids:
         return segment_ids[:top_k]
     
     # Get segments
@@ -191,7 +170,7 @@ def hybrid_search(
     top_k: int = DEFAULT_TOP_K
 ) -> List[Dict[str, Any]]:
     """
-    Perform hybrid search combining FAISS and BM25.
+    Perform hybrid search combining pgvector and BM25.
     
     Args:
         query: Search query
@@ -203,14 +182,14 @@ def hybrid_search(
     """
     start_time = time.time()
     
-    # Search using FAISS
-    faiss_results = search_faiss(query, video_id)
+    # Search using pgvector
+    vector_results = search_vector(query, video_id, DEFAULT_VECTOR_TOP_K)
     
     # Search using BM25
     bm25_results = search_bm25(query, video_id)
     
     # Combine results using RRF
-    combined_ids = reciprocal_rank_fusion([faiss_results, bm25_results])
+    combined_ids = reciprocal_rank_fusion([vector_results, bm25_results])
     
     # Rerank results
     reranked_ids = rerank_results(query, combined_ids, top_k)
@@ -219,6 +198,7 @@ def hybrid_search(
     segments = db.get_segments_by_ids(reranked_ids)
     
     # Add formatted timestamps
+    from ..ingestion.ingest import format_timestamp
     for segment in segments:
         segment["timestamp"] = format_timestamp(segment["start_s"])
     

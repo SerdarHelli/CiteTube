@@ -10,25 +10,17 @@ import logging
 from typing import Dict, List, Tuple, Optional, Any
 from pathlib import Path
 import numpy as np
-import faiss
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
 
-from models import get_embedding_model, normalize_embedding
-import db
+from ..core.models import get_embedding_model, normalize_embedding
+from ..core import db
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(Path(__file__).parent / "data" / "logs" / "ingest.log")
-    ]
-)
-logger = logging.getLogger("ingest")
+# Import centralized logging config
+from ..core.logging_config import setup_logging
+
+logger = logging.getLogger("citetube.ingest")
 
 # Constants
-FAISS_DIR = Path(__file__).parent / "data" / "faiss"
 CHUNK_OVERLAP_SECONDS = 5
 MIN_CHUNK_LENGTH = 50
 MAX_CHUNK_LENGTH = 500
@@ -169,9 +161,9 @@ def format_timestamp(seconds: float) -> str:
     seconds = int(seconds % 60)
     return f"{minutes:02d}:{seconds:02d}"
 
-def build_faiss_index(video_id: int, segments: List[Dict[str, Any]]) -> None:
+def generate_and_store_embeddings(video_id: int, segments: List[Dict[str, Any]]) -> None:
     """
-    Build FAISS index for video segments.
+    Generate embeddings for video segments and store them in PostgreSQL with pgvector.
     
     Args:
         video_id: Database ID of the video
@@ -186,19 +178,13 @@ def build_faiss_index(video_id: int, segments: List[Dict[str, Any]]) -> None:
     # Generate embeddings
     embeddings = model.encode(texts, show_progress_bar=True)
     
-    # Normalize embeddings for inner product
+    # Normalize embeddings for cosine similarity
     normalized_embeddings = np.array([normalize_embedding(emb) for emb in embeddings], dtype=np.float32)
     
-    # Create FAISS index (inner product)
-    dimension = normalized_embeddings.shape[1]
-    index = faiss.IndexFlatIP(dimension)
-    index.add(normalized_embeddings)
+    # Store embeddings in database
+    db.update_segment_embeddings(video_id, normalized_embeddings)
     
-    # Save index
-    os.makedirs(FAISS_DIR, exist_ok=True)
-    faiss.write_index(index, str(FAISS_DIR / f"{video_id}.index"))
-    
-    logger.info(f"Built FAISS index for video {video_id} with {len(segments)} segments")
+    logger.info(f"Generated and stored embeddings for video {video_id} with {len(segments)} segments")
 
 def ingest_video(url: str) -> Tuple[int, Dict[str, Any]]:
     """
@@ -252,9 +238,9 @@ def ingest_video(url: str) -> Tuple[int, Dict[str, Any]]:
     # Store segments
     db.store_segments(video_id, chunks)
     
-    # Build FAISS index
+    # Generate and store embeddings
     segments = db.get_video_segments(video_id)
-    build_faiss_index(video_id, segments)
+    generate_and_store_embeddings(video_id, segments)
     
     # Get updated video metadata
     video_metadata = db.get_video_by_yt_id(yt_id)
