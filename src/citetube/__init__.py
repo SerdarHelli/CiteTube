@@ -5,9 +5,33 @@ A Python package for ingesting YouTube videos and answering questions about thei
 using hybrid search (vector + BM25) and large language models.
 """
 
-__version__ = "0.1.0"
+try:
+    from ._version import version as __version__
+except ImportError:
+    # Fallback for development installations
+    __version__ = "0.1.0-dev"
+
 __author__ = "CiteTube Team"
 __description__ = "Local YouTube Transcript QA Application"
 
-# Note: Removed wildcard imports to prevent circular import issues
-# Import specific functions as needed in your code
+# Public API - import key functions for easy access
+from .core.config import (
+    get_embedding_model_name,
+    get_llm_model,
+    get_llm_provider,
+    ensure_directories,
+)
+
+from .core.db import test_connection, init_db
+
+__all__ = [
+    "__version__",
+    "__author__", 
+    "__description__",
+    "get_embedding_model_name",
+    "get_llm_model", 
+    "get_llm_provider",
+    "ensure_directories",
+    "test_connection",
+    "init_db",
+]

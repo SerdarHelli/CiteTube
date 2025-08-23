@@ -64,3 +64,37 @@ yarn-error.log*
 .pytest_cache/
 coverage/
 htmlcov/
+
+# ---- CiteTube Specific ----
+# Environment files
+.env
+.env.local
+.env.production
+
+# vLLM files
+vllm.log
+vllm.pid
+
+# Data files
+data/logs/*.log
+data/models/
+data/cache/
+
+# Model files (if downloaded locally)
+models/
+*.bin
+*.safetensors
+*.gguf
+
+# Database dumps
+*.sql
+*.db
+*.sqlite
+
+# Temporary files
+temp/
+tmp/
+
+
+#logs
+logs/*

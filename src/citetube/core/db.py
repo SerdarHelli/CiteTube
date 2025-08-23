@@ -4,7 +4,6 @@ Handles PostgreSQL operations for storing video metadata, transcript segments, a
 """
 
 import os
-import logging
 import psycopg2
 import psycopg2.extras
 import numpy as np
@@ -14,9 +13,10 @@ from typing import Dict, List, Tuple, Optional, Any, Union
 from pgvector.psycopg2 import register_vector
 
 from .config import get_db_host, get_db_port, get_db_name, get_db_user, get_db_password
+from .logging_config import get_logger
 
 # Configure logging
-logger = logging.getLogger(__name__)
+logger = get_logger("citetube.db")
 
 def get_db_connection() -> psycopg2.extensions.connection:
     """Get a connection to the PostgreSQL database."""
@@ -67,7 +67,7 @@ def init_db() -> None:
             start_s REAL NOT NULL,
             end_s REAL NOT NULL,
             text TEXT NOT NULL,
-            embedding vector(768),
+            embedding vector(384),
             FOREIGN KEY (video_id) REFERENCES videos (id) ON DELETE CASCADE
         )
         ''')

@@ -6,7 +6,6 @@ Handles fetching, chunking, and embedding of YouTube transcripts.
 import os
 import re
 import hashlib
-import logging
 from typing import Dict, List, Tuple, Optional, Any
 from pathlib import Path
 import numpy as np
@@ -16,9 +15,9 @@ from ..core.models import get_embedding_model, normalize_embedding
 from ..core import db
 
 # Import centralized logging config
-from ..core.logging_config import setup_logging
+from ..core.logging_config import get_logger
 
-logger = logging.getLogger("citetube.ingest")
+logger = get_logger("citetube.ingest")
 
 # Constants
 CHUNK_OVERLAP_SECONDS = 5
@@ -62,7 +61,8 @@ def fetch_transcript(video_id: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any
         Exception: If transcript cannot be fetched
     """
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        api = YouTubeTranscriptApi()
+        transcript_list = api.list(video_id)
         
         # Try to get English transcript first, then manual, then any available
         transcript = None
@@ -92,7 +92,7 @@ def fetch_transcript(video_id: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any
             "is_generated": transcript.is_generated,
             "title": "Unknown",  # We don't have access to title via transcript API
             "channel": "Unknown",  # We don't have access to channel via transcript API
-            "duration_s": transcript_data[-1]["start"] + transcript_data[-1]["duration"] if transcript_data else 0
+            "duration_s": transcript_data[-1].start + transcript_data[-1].duration if transcript_data else 0
         }
         
         return transcript_data, metadata
@@ -121,12 +121,12 @@ def chunk_transcript(transcript_items: List[Dict[str, Any]]) -> List[Dict[str, A
     
     for item in transcript_items:
         # If adding this item would make the chunk too long, finalize the current chunk
-        if len(current_chunk["text"]) + len(item["text"]) > MAX_CHUNK_LENGTH and len(current_chunk["text"]) >= MIN_CHUNK_LENGTH:
-            current_chunk["end_s"] = item["start"]
+        if len(current_chunk["text"]) + len(item.text) > MAX_CHUNK_LENGTH and len(current_chunk["text"]) >= MIN_CHUNK_LENGTH:
+            current_chunk["end_s"] = item.start
             chunks.append(current_chunk)
             
             # Start a new chunk with overlap
-            overlap_start = max(0, item["start"] - CHUNK_OVERLAP_SECONDS)
+            overlap_start = max(0, item.start - CHUNK_OVERLAP_SECONDS)
             current_chunk = {
                 "start_s": overlap_start,
                 "end_s": 0,
@@ -136,10 +136,10 @@ def chunk_transcript(transcript_items: List[Dict[str, Any]]) -> List[Dict[str, A
         # Add the current item to the chunk
         if current_chunk["text"]:
             current_chunk["text"] += " "
-        current_chunk["text"] += item["text"]
+        current_chunk["text"] += item.text
         
         # Update end time
-        current_chunk["end_s"] = item["start"] + item["duration"]
+        current_chunk["end_s"] = item.start + item.duration
     
     # Add the last chunk if it's not empty
     if current_chunk["text"] and len(current_chunk["text"]) >= MIN_CHUNK_LENGTH:
@@ -213,7 +213,7 @@ def ingest_video(url: str) -> Tuple[int, Dict[str, Any]]:
     transcript_items, metadata = fetch_transcript(yt_id)
     
     # Generate transcript hash
-    transcript_text = " ".join(item["text"] for item in transcript_items)
+    transcript_text = " ".join(item.text for item in transcript_items)
     transcript_hash = hashlib.md5(transcript_text.encode()).hexdigest()
     
     # If video exists and transcript hasn't changed, return existing video

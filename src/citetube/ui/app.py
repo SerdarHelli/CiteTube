@@ -5,7 +5,6 @@ Gradio UI for ingesting YouTube videos and answering questions about their conte
 
 import os
 import time
-import logging
 import gradio as gr
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
@@ -21,13 +20,33 @@ from ..llm import llm
 from ..core import db
 
 # Import centralized logging config
-from ..core.logging_config import setup_logging
+from ..core.logging_config import get_logger
 
-logger = logging.getLogger("citetube.app")
+logger = get_logger("citetube.app")
 
-# Global state
-current_video_id = None
-current_video_metadata = None
+# Application state management
+class AppState:
+    """Manages application state for the current session."""
+    def __init__(self):
+        self.current_video_id = None
+        self.current_video_metadata = None
+    
+    def set_video(self, video_id: int, metadata: Dict[str, Any]):
+        """Set the current video."""
+        self.current_video_id = video_id
+        self.current_video_metadata = metadata
+    
+    def clear_video(self):
+        """Clear the current video."""
+        self.current_video_id = None
+        self.current_video_metadata = None
+    
+    def has_video(self) -> bool:
+        """Check if a video is currently loaded."""
+        return self.current_video_id is not None
+
+# Global app state instance
+app_state = AppState()
 
 def process_youtube_url(url: str) -> Tuple[str, Dict[str, Any]]:
     """
@@ -39,8 +58,6 @@ def process_youtube_url(url: str) -> Tuple[str, Dict[str, Any]]:
     Returns:
         Tuple of (status_message, video_metadata)
     """
-    global current_video_id, current_video_metadata
-    
     try:
         # Extract YouTube ID
         yt_id = ingest.extract_youtube_id(url)
@@ -50,8 +67,7 @@ def process_youtube_url(url: str) -> Tuple[str, Dict[str, Any]]:
         # Check if video already exists
         existing_video = db.get_video_by_yt_id(yt_id)
         if existing_video:
-            current_video_id = existing_video["id"]
-            current_video_metadata = existing_video
+            app_state.set_video(existing_video["id"], existing_video)
             return f"✅ Video already ingested: {existing_video.get('title', 'Unknown')}", existing_video
         
         # Ingest video
@@ -59,9 +75,8 @@ def process_youtube_url(url: str) -> Tuple[str, Dict[str, Any]]:
         video_id, video_metadata = ingest.ingest_video(url)
         elapsed_time = time.time() - start_time
         
-        # Update global state
-        current_video_id = video_id
-        current_video_metadata = video_metadata
+        # Update app state
+        app_state.set_video(video_id, video_metadata)
         
         return f"✅ Successfully ingested video in {elapsed_time:.2f}s", video_metadata
         
@@ -79,9 +94,7 @@ def answer_question(question: str) -> Tuple[str, str, str]:
     Returns:
         Tuple of (answer_html, debug_info, raw_response)
     """
-    global current_video_id, current_video_metadata
-    
-    if not current_video_id:
+    if not app_state.has_video():
         return "Please ingest a YouTube video first.", "", ""
     
     try:
@@ -89,7 +102,7 @@ def answer_question(question: str) -> Tuple[str, str, str]:
         start_time = time.time()
         
         # Retrieve relevant segments
-        segments = retrieve.hybrid_search(question, current_video_id)
+        segments = retrieve.hybrid_search(question, app_state.current_video_id)
         retrieve_time = time.time() - start_time
         
         if not segments:
@@ -116,8 +129,8 @@ def answer_question(question: str) -> Tuple[str, str, str]:
             answer_html += "</ul>"
         
         # Add video info
-        video_title = current_video_metadata.get("title", "Unknown")
-        video_id = current_video_metadata.get("yt_id", "")
+        video_title = app_state.current_video_metadata.get("title", "Unknown")
+        video_id = app_state.current_video_metadata.get("yt_id", "")
         
         answer_html += f"<h3>Source:</h3><p><a href='https://www.youtube.com/watch?v={video_id}' target='_blank'>{video_title}</a></p>"
         
@@ -135,7 +148,7 @@ def answer_question(question: str) -> Tuple[str, str, str]:
         <b>Video Info:</b>
         - ID: {video_id}
         - Title: {video_title}
-        - Duration: {current_video_metadata.get("duration_s", 0) // 60} minutes
+        - Duration: {app_state.current_video_metadata.get("duration_s", 0) // 60} minutes
         """
         
         # Return formatted answer, debug info, and raw response
@@ -202,11 +215,48 @@ def create_app():
     
     return app
 
+# Health check endpoint
+def health_check():
+    """Simple health check for the application."""
+    try:
+        # Check database connection
+        if not db.test_connection():
+            return {"status": "unhealthy", "reason": "database connection failed"}
+        
+        # Check if vLLM is accessible
+        try:
+            from ..llm.llm import test_llm_connection
+            if not test_llm_connection():
+                return {"status": "unhealthy", "reason": "vLLM connection failed"}
+        except Exception as e:
+            return {"status": "unhealthy", "reason": f"vLLM test failed: {str(e)}"}
+        
+        return {"status": "healthy"}
+    except Exception as e:
+        return {"status": "unhealthy", "reason": str(e)}
+
 # Launch function
-def launch_app():
-    """Launch the Gradio app."""
+def launch_app(
+    server_name: str = "0.0.0.0",
+    server_port: int = 7860,
+    share: bool = False,
+    debug: bool = False
+):
+    """Launch the Gradio app with configurable parameters."""
+    # Logging is initialized in main.py
+    logger.info(f"Launching Gradio app on {server_name}:{server_port}")
+    
+    # Create and launch the app
     app = create_app()
-    app.launch()
+    
+    logger.info("Starting Gradio server")
+    app.launch(
+        server_name=server_name,
+        server_port=server_port,
+        share=share,
+        debug=debug,
+        show_error=debug
+    )
 
 # For backward compatibility
 if __name__ == "__main__":

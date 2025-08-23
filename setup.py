@@ -45,14 +45,14 @@ setup(
         "dev": [
             "pytest>=6.0",
             "pytest-cov>=2.0",
-            "black>=21.0",
-            "flake8>=3.8",
-            "mypy>=0.800",
+            "ruff>=0.1.0",
         ],
     },
     entry_points={
         "console_scripts": [
             "citetube=citetube.ui.app:launch_app",
+            "citetube-cli=main:app",
+            "citetube-start=scripts.start:app",
         ],
     },
     include_package_data=True,

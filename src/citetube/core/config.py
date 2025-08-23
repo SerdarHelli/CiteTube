@@ -10,9 +10,8 @@ from typing import Optional
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 
-# Data directories
-DATA_DIR = PROJECT_ROOT / "data"
-LOGS_DIR = DATA_DIR / "logs"
+# Logs directory
+LOGS_DIR = PROJECT_ROOT / "logs"
 
 # Database - PostgreSQL with pgvector
 def get_db_host() -> str:
@@ -36,9 +35,9 @@ def get_db_password() -> str:
     return os.getenv("DB_PASSWORD", "")
 
 # Model settings
-DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"  # Ollama embedding model
+DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # sentence-transformers embedding model
 DEFAULT_RERANKER_MODEL = "BAAI/bge-reranker-base"  # Keep sentence-transformers for reranker
-DEFAULT_LLM_MODEL = "llama3.2"  # Ollama LLM model
+DEFAULT_LLM_MODEL = "meta-llama/Llama-3.2-8B-Instruct"  # vLLM LLM model
 
 # Search settings
 DEFAULT_TOP_K = 8
@@ -67,8 +66,8 @@ def get_anthropic_api_key() -> Optional[str]:
     return os.getenv("ANTHROPIC_API_KEY")
 
 def get_llm_provider() -> str:
-    """Get the LLM provider from environment or default to Ollama."""
-    return os.getenv("LLM_PROVIDER", "ollama").lower()
+    """Get the LLM provider from environment or default to vLLM."""
+    return os.getenv("LLM_PROVIDER", "vllm").lower()
 
 def get_llm_model() -> str:
     """Get the LLM model name from environment."""
@@ -77,6 +76,8 @@ def get_llm_model() -> str:
         return os.getenv("OPENAI_MODEL", "gpt-4")
     elif provider == "anthropic":
         return os.getenv("ANTHROPIC_MODEL", "claude-3-sonnet-20240229")
+    elif provider == "vllm":
+        return os.getenv("VLLM_MODEL", DEFAULT_LLM_MODEL)
     elif provider == "ollama":
         return os.getenv("OLLAMA_MODEL", DEFAULT_LLM_MODEL)
     else:
@@ -90,10 +91,28 @@ def get_max_tokens() -> int:
     """Get the max tokens from environment."""
     return int(os.getenv("MAX_TOKENS", "1024"))
 
+# vLLM specific configuration
+def get_vllm_host() -> str:
+    """Get vLLM server host from environment."""
+    return os.getenv("VLLM_HOST", "localhost")
+
+def get_vllm_port() -> int:
+    """Get vLLM server port from environment."""
+    return int(os.getenv("VLLM_PORT", "8000"))
+
+def get_vllm_api_key() -> Optional[str]:
+    """Get vLLM API key from environment (if authentication is enabled)."""
+    return os.getenv("VLLM_API_KEY")
+
+def get_vllm_base_url() -> str:
+    """Get vLLM base URL."""
+    host = get_vllm_host()
+    port = get_vllm_port()
+    return f"http://{host}:{port}/v1"
+
 # Ensure directories exist
 def ensure_directories():
     """Ensure all required directories exist."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Initialize directories when module is imported

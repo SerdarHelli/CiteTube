@@ -4,7 +4,6 @@ Implements hybrid search combining FAISS and BM25.
 """
 
 import os
-import logging
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union
@@ -16,9 +15,9 @@ from ..core import db
 from ..core.config import DEFAULT_TOP_K, DEFAULT_VECTOR_TOP_K, use_reranker
 
 # Import centralized logging config
-from ..core.logging_config import setup_logging
+from ..core.logging_config import get_logger
 
-logger = logging.getLogger("citetube.retrieve")
+logger = get_logger("citetube.retrieve")
 
 def reciprocal_rank_fusion(
     results_lists: List[List[int]], 

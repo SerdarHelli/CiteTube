@@ -1,64 +1,25 @@
 """
 LLM client module for CiteTube.
-Handles local LLM inference using Ollama and prompt construction.
+Handles LLM inference using vLLM and prompt construction.
 """
 
 import os
 import json
-import logging
 from typing import Dict, List, Tuple, Optional, Any
 from pathlib import Path
 import time
 from dotenv import load_dotenv
-import ollama
 
 from ..core.config import get_llm_model, get_llm_provider, get_temperature, get_max_tokens
+from .vllm_client import call_vllm, ensure_model_available, check_vllm_health
 
 # Load environment variables
 load_dotenv()
 
 # Import centralized logging config
-from ..core.logging_config import setup_logging
+from ..core.logging_config import get_logger
 
-logger = logging.getLogger("citetube.llm")
-
-# Global Ollama client
-_ollama_client = None
-
-def get_ollama_client():
-    """Get or create Ollama client."""
-    global _ollama_client
-    if _ollama_client is None:
-        try:
-            _ollama_client = ollama.Client()
-            # Test connection
-            _ollama_client.list()
-        except Exception as e:
-            logging.error(f"Failed to connect to Ollama: {e}")
-            raise ConnectionError(f"Ollama is not running or not accessible. Please start Ollama first. Error: {e}")
-    return _ollama_client
-
-def ensure_model_available(model_name: str):
-    """
-    Ensure the Ollama model is available, pull if necessary.
-    
-    Args:
-        model_name: Name of the Ollama model
-    """
-    client = get_ollama_client()
-    
-    try:
-        # Try to get model info to check if it exists
-        client.show(model_name)
-        logger.info(f"Ollama model {model_name} is available")
-    except Exception as e:
-        logger.warning(f"Model {model_name} not found, attempting to pull...")
-        try:
-            client.pull(model_name)
-            logger.info(f"Successfully pulled model {model_name}")
-        except Exception as pull_error:
-            logger.error(f"Failed to pull model {model_name}: {pull_error}")
-            raise
+logger = get_logger("citetube.llm")
 
 def build_prompt(question: str, segments: List[Dict[str, Any]]) -> str:
     """
@@ -105,7 +66,7 @@ def call_llm(
     max_tokens: int = None
 ) -> Dict[str, Any]:
     """
-    Call Ollama LLM with the given prompt.
+    Call vLLM with the given prompt.
     
     Args:
         prompt: Prompt to send to the LLM
@@ -128,29 +89,26 @@ def call_llm(
         model_name = get_llm_model()
         ensure_model_available(model_name)
         
-        # Get Ollama client
-        client = get_ollama_client()
-        
         # Prepare system and user messages
         system_prompt = """You are a careful assistant that answers questions about YouTube videos based on their transcripts.
 Always cite timestamps [mm:ss] for every claim you make. Return your answer in the requested JSON format."""
         
-        # Generate response
-        logger.info("Generating response with Ollama...")
-        response = client.chat(
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        
+        # Generate response using vLLM
+        logger.info("Generating response with vLLM...")
+        response = call_vllm(
+            messages=messages,
             model=model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            options={
-                "temperature": temperature,
-                "num_predict": max_tokens,
-            }
+            temperature=temperature,
+            max_tokens=max_tokens
         )
         
         # Extract generated text
-        content = response['message']['content'].strip()
+        content = response['content'].strip()
         
         # Try to parse as JSON
         try:
@@ -166,14 +124,14 @@ Always cite timestamps [mm:ss] for every claim you make. Return your answer in t
                 "raw_response": content
             }
         
-        logger.info(f"Ollama LLM call completed in {time.time() - start_time:.2f}s")
+        logger.info(f"vLLM call completed in {time.time() - start_time:.2f}s")
         
         return parsed_content
         
     except Exception as e:
-        logger.error(f"Error calling Ollama LLM: {str(e)}")
+        logger.error(f"Error calling vLLM: {str(e)}")
         return {
-            "answer": f"Error: Failed to get response from Ollama LLM. {str(e)}",
+            "answer": f"Error: Failed to get response from vLLM. {str(e)}",
             "bullets": [],
             "citations": [],
             "confidence": 0.0,
@@ -209,3 +167,29 @@ def answer_question(question: str, segments: List[Dict[str, Any]]) -> Dict[str, 
                     citation["segment"] = segment_map[seg_id]
     
     return response
+
+def test_llm_connection() -> bool:
+    """
+    Test if the LLM connection is working.
+    
+    Returns:
+        True if connection is working, False otherwise
+    """
+    try:
+        # Check vLLM health
+        if not check_vllm_health():
+            return False
+        
+        # Try a simple test call
+        test_response = call_vllm(
+            messages=[{"role": "user", "content": "Hello, respond with 'OK'"}],
+            model=get_llm_model(),
+            temperature=0.1,
+            max_tokens=10
+        )
+        
+        return test_response is not None and 'content' in test_response
+        
+    except Exception as e:
+        logger.error(f"LLM connection test failed: {e}")
+        return False
