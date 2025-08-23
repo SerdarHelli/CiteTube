@@ -309,4 +309,4 @@ CiteTube/
 
 ## License
 
-MIT License - see LICENSE file for details.
+GNU3 License - see LICENSE file for details.
