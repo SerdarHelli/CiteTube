@@ -234,8 +234,6 @@ python main.py stop         # Stop all services
 python main.py status       # Check service status
 python main.py logs         # View vLLM logs
 
-# Testing
-pytest tests/ -v           # Run tests
 ```
 
 ### Code Quality
@@ -299,8 +297,6 @@ CiteTube/
    # Check GPU availability
    nvidia-smi
    
-   # View vLLM logs
-   python scripts/start.py logs
    ```
 
 3. **Out of Memory**:
@@ -309,10 +305,7 @@ CiteTube/
 
 ### Getting Help
 
-- Check the logs: `python scripts/start.py logs`
 - Test services: `python main.py health`
-- View service status: `python scripts/start.py status`
-
 
 ## License
 
