@@ -189,17 +189,7 @@ python main.py health
 # Show version
 python main.py version
 
-# Start all services (vLLM + app)
-python scripts/start.py start
 
-# Stop all services
-python scripts/start.py stop
-
-# Check service status
-python scripts/start.py status
-
-# View logs
-python scripts/start.py logs
 ```
 
 ### Web Interface
@@ -285,21 +275,6 @@ CiteTube/
 └── .env.example         # Environment template
 ```
 
-## Testing
-
-Run the test suite:
-
-```bash
-# Run all tests
-pytest tests/ -v
-
-# Run specific tests
-pytest tests/test_vllm.py -v
-
-# Run with coverage (if pytest-cov is installed)
-pytest --cov=src/citetube tests/
-```
-
 ## Performance
 
 - **Embedding Generation**: ~100-500 tokens/second
@@ -338,13 +313,6 @@ pytest --cov=src/citetube tests/
 - Test services: `python main.py health`
 - View service status: `python scripts/start.py status`
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests: `pytest tests/ -v`
-5. Submit a pull request
 
 ## License
 
