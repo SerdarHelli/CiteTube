@@ -358,6 +358,120 @@ def vector_similarity_search(
         cursor.close()
         conn.close()
 
+def get_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Get video metadata by database ID.
+    
+    Args:
+        video_id: Database video ID
+        
+    Returns:
+        Dictionary with video metadata or None if not found
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        cursor.execute('''
+        SELECT *, 
+               (SELECT COUNT(*) FROM segments WHERE video_id = videos.id) as segment_count,
+               last_synced_at as created_at
+        FROM videos WHERE id = %s
+        ''', (video_id,))
+        result = cursor.fetchone()
+        
+        if result:
+            video_dict = dict(result)
+            # Add description field (not in current schema, but tools expect it)
+            video_dict['description'] = video_dict.get('description', 'No description available')
+            return video_dict
+        return None
+        
+    except psycopg2.Error as e:
+        logger.error(f"Failed to get video by id: {e}")
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_segments_by_video_id(video_id: int, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """
+    Get segments for a video with optional limit.
+    
+    Args:
+        video_id: Database video ID
+        limit: Maximum number of segments to return
+        
+    Returns:
+        List of segment dictionaries with timestamps
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        query = '''
+        SELECT id, video_id, start_s, end_s, text,
+               CONCAT(LPAD(CAST(FLOOR(start_s / 60) AS TEXT), 2, '0'), ':', 
+                      LPAD(CAST(FLOOR(start_s % 60) AS TEXT), 2, '0')) as timestamp
+        FROM segments 
+        WHERE video_id = %s 
+        ORDER BY start_s
+        '''
+        
+        if limit:
+            query += f" LIMIT {limit}"
+            
+        cursor.execute(query, (video_id,))
+        results = cursor.fetchall()
+        
+        return [dict(row) for row in results]
+        
+    except psycopg2.Error as e:
+        logger.error(f"Failed to get segments by video id: {e}")
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_segment_by_timestamp(video_id: int, target_seconds: int) -> Optional[Dict[str, Any]]:
+    """
+    Get the segment closest to a specific timestamp.
+    
+    Args:
+        video_id: Database video ID
+        target_seconds: Target timestamp in seconds
+        
+    Returns:
+        Segment dictionary or None if not found
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        cursor.execute('''
+        SELECT id, video_id, start_s, end_s, text,
+               CONCAT(LPAD(CAST(FLOOR(start_s / 60) AS TEXT), 2, '0'), ':', 
+                      LPAD(CAST(FLOOR(start_s % 60) AS TEXT), 2, '0')) as timestamp,
+               ABS(start_s - %s) as time_diff
+        FROM segments 
+        WHERE video_id = %s 
+        ORDER BY time_diff
+        LIMIT 1
+        ''', (target_seconds, video_id))
+        
+        result = cursor.fetchone()
+        
+        if result:
+            return dict(result)
+        return None
+        
+    except psycopg2.Error as e:
+        logger.error(f"Failed to get segment by timestamp: {e}")
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
 def test_connection() -> bool:
     """
     Test database connection.

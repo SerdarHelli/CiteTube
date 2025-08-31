@@ -37,7 +37,7 @@ def get_db_password() -> str:
 # Model settings
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # sentence-transformers embedding model
 DEFAULT_RERANKER_MODEL = "BAAI/bge-reranker-base"  # Keep sentence-transformers for reranker
-DEFAULT_LLM_MODEL = "meta-llama/Llama-3.2-8B-Instruct"  # vLLM LLM model
+DEFAULT_LLM_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"  # vLLM LLM model
 
 # Search settings
 DEFAULT_TOP_K = 8

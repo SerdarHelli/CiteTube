@@ -1,9 +1,14 @@
 """
 UI module for CiteTube.
 
-Contains the Gradio web interface for the application.
+Contains the simplified Gradio web interface for YouTube video analysis
+with LangChain agent integration.
 """
 
-# Note: Removed wildcard imports to prevent circular import issues
-# Import specific functions as needed:
-# from .app import launch_app, create_app
+from .app import launch_app, create_app, health_check
+
+__all__ = [
+    "launch_app",
+    "create_app", 
+    "health_check"
+]

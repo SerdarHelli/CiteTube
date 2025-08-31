@@ -25,3 +25,8 @@ rich>=13.0.0
 
 # Logging
 loguru>=0.7.0
+
+# LangChain for agents and tools
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-community>=0.1.0

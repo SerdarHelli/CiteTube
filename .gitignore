@@ -66,10 +66,10 @@ coverage/
 htmlcov/
 
 # ---- CiteTube Specific ----
-# Environment files
-.env
+# Environment files (keep .env for now as it's in use)
 .env.local
 .env.production
+.env.example
 
 # vLLM files
 vllm.log
@@ -95,6 +95,12 @@ models/
 temp/
 tmp/
 
+# Logs directory
+logs/*.log
+logs/*.pid
+logs/*.out
+logs/*.err
 
-#logs
-logs/*
+# Zencoder files (IDE specific)
+.zencoder/
+docs/

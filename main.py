@@ -4,14 +4,9 @@ CiteTube - YouTube Transcript QA Application
 Smart CLI interface that handles everything automatically.
 """
 
-import sys
-import os
 import subprocess
-import time
-import signal
-import socket
+import sys
 from pathlib import Path
-from typing import Optional
 
 # Add src directory to Python path
 src_path = Path(__file__).parent / "src"
@@ -22,7 +17,6 @@ try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
-    from rich.progress import Progress, SpinnerColumn, TextColumn
 except ImportError:
     print("Missing dependencies. Please install with: pip install typer rich")
     sys.exit(1)
@@ -31,6 +25,8 @@ from citetube.ui.app import launch_app
 from citetube.core.config import ensure_directories
 from citetube.core.db import test_connection, init_db
 from citetube.core.logging_config import setup_logging, setup_vllm_logging, get_logger
+from citetube.core.services import ServiceManager
+from citetube.core.utils import ensure_env_file, get_project_info
 
 app = typer.Typer(
     name="citetube",
@@ -39,7 +35,11 @@ app = typer.Typer(
 )
 console = Console()
 
-# Initialize logging system
+# Project root and service manager
+PROJECT_ROOT = Path(__file__).parent
+service_manager = ServiceManager(PROJECT_ROOT)
+
+
 def init_logging(debug: bool = False):
     """Initialize the logging system with appropriate settings."""
     log_level = "DEBUG" if debug else "INFO"
@@ -53,136 +53,8 @@ def init_logging(debug: bool = False):
     setup_vllm_logging()
     return get_logger("citetube.main")
 
-# Project root and service files
-PROJECT_ROOT = Path(__file__).parent
-LOGS_DIR = PROJECT_ROOT / "logs"
-VLLM_PID_FILE = LOGS_DIR / "vllm.pid"
-VLLM_LOG_FILE = LOGS_DIR / "vllm.log"
 
 
-def check_service(host: str, port: int, timeout: int = 30) -> bool:
-    """Check if a service is running on the given host:port."""
-    for _ in range(timeout):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(1)
-                result = sock.connect_ex((host, port))
-                if result == 0:
-                    return True
-        except Exception:
-            pass
-        time.sleep(1)
-    return False
-
-
-def load_env() -> dict:
-    """Load environment variables from .env file."""
-    env_file = PROJECT_ROOT / ".env"
-    env_vars = {}
-    
-    if env_file.exists():
-        with open(env_file) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
-                    env_vars[key.strip()] = value.strip()
-    
-    return env_vars
-
-
-def ensure_env_file():
-    """Ensure .env file exists, create from example if needed."""
-    env_file = PROJECT_ROOT / ".env"
-    if not env_file.exists():
-        console.print("⚠️ .env file not found. Creating from .env.example...", style="yellow")
-        example_file = PROJECT_ROOT / ".env.example"
-        if example_file.exists():
-            import shutil
-            shutil.copy(example_file, env_file)
-            console.print("✅ Created .env file. Please review and modify if needed.", style="green")
-        else:
-            console.print("❌ .env.example not found. Please create .env manually.", style="red")
-            raise typer.Exit(1)
-
-
-def start_vllm() -> Optional[int]:
-    """Start vLLM server and return the process ID."""
-    logger = get_logger("citetube.main.vllm")
-    env_vars = load_env()
-    
-    model = env_vars.get('VLLM_MODEL', 'Qwen/Qwen2.5-0.5B-Instruct')
-    host = env_vars.get('VLLM_HOST', 'localhost')
-    port = env_vars.get('VLLM_PORT', '8000')
-    
-    logger.info(f"Starting vLLM server with model: {model} on {host}:{port}")
-    console.print(f"🤖 Starting vLLM server with model: {model}")
-    
-    cmd = [
-        sys.executable, '-m', 'vllm.entrypoints.openai.api_server',
-        '--model', model,
-        '--host', host,
-        '--port', port,
-        '--max-model-len', env_vars.get('VLLM_MAX_MODEL_LEN', '8192'),
-        '--gpu-memory-utilization', env_vars.get('VLLM_GPU_MEMORY_UTILIZATION', '0.85'),
-        '--tensor-parallel-size', env_vars.get('VLLM_TENSOR_PARALLEL_SIZE', '1'),
-        '--enable-prefix-caching',
-        '--enable-chunked-prefill',
-        '--disable-sliding-window'
-    ]
-    
-    try:
-        # Ensure logs directory exists
-        LOGS_DIR.mkdir(exist_ok=True)
-        logger.debug(f"vLLM command: {' '.join(cmd)}")
-        
-        with open(VLLM_LOG_FILE, 'w') as log_file:
-            process = subprocess.Popen(
-                cmd,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                preexec_fn=os.setsid
-            )
-        
-        # Save PID
-        with open(VLLM_PID_FILE, 'w') as f:
-            f.write(str(process.pid))
-        
-        logger.success(f"vLLM server started with PID: {process.pid}")
-        return process.pid
-    except Exception as e:
-        logger.error(f"Failed to start vLLM: {e}")
-        console.print(f"❌ Failed to start vLLM: {e}", style="red")
-        return None
-
-
-def stop_vllm():
-    """Stop the vLLM server."""
-    logger = get_logger("citetube.main.vllm")
-    
-    if VLLM_PID_FILE.exists():
-        try:
-            with open(VLLM_PID_FILE) as f:
-                pid = int(f.read().strip())
-            
-            logger.info(f"Stopping vLLM server with PID: {pid}")
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-            logger.success("vLLM server stopped successfully")
-            console.print("✅ Stopped vLLM server", style="green")
-            VLLM_PID_FILE.unlink()
-        except (ValueError, ProcessLookupError, FileNotFoundError) as e:
-            logger.warning(f"vLLM server was not running: {e}")
-            console.print("⚠️ vLLM server was not running", style="yellow")
-            if VLLM_PID_FILE.exists():
-                VLLM_PID_FILE.unlink()
-    else:
-        logger.warning("vLLM PID file not found")
-        console.print("⚠️ vLLM PID file not found", style="yellow")
-
-
-def is_vllm_running() -> bool:
-    """Check if vLLM is already running."""
-    return check_service("localhost", 8000, timeout=1)
 
 
 @app.command()
@@ -202,7 +74,7 @@ def run(
     
     # Ensure .env file exists
     logger.debug("Ensuring .env file exists")
-    ensure_env_file()
+    ensure_env_file(PROJECT_ROOT)
     
     # Ensure directories exist
     logger.debug("Ensuring required directories exist")
@@ -220,14 +92,18 @@ def run(
     console.print("✅ Database connection successful", style="green")
     
     # Smart vLLM handling
-    if auto_start and not is_vllm_running():
+    if auto_start and not service_manager.is_vllm_running():
         logger.info("vLLM not running, starting automatically")
         console.print("🤖 vLLM not running, starting automatically...")
-        vllm_pid = start_vllm()
+        env_vars = service_manager.load_env()
+        model = env_vars.get('VLLM_MODEL', 'Qwen/Qwen2.5-0.5B-Instruct')
+        console.print(f"🤖 Starting vLLM server with model: {model}")
+        
+        vllm_pid = service_manager.start_vllm()
         if vllm_pid:
             logger.info(f"vLLM started with PID: {vllm_pid}")
             console.print("⏳ Waiting for vLLM to start...")
-            if check_service("localhost", 8000, timeout=60):
+            if service_manager.check_service("localhost", 8000, timeout=60):
                 logger.success("vLLM server is ready")
                 console.print("✅ vLLM server is ready", style="green")
             else:
@@ -239,7 +115,7 @@ def run(
             logger.error("Failed to start vLLM server")
             console.print("❌ Failed to start vLLM", style="red")
             raise typer.Exit(1)
-    elif is_vllm_running():
+    elif service_manager.is_vllm_running():
         logger.info("vLLM server already running")
         console.print("✅ vLLM server already running", style="green")
     else:
@@ -255,7 +131,8 @@ def run(
         console.print("\n⏹️ Shutting down...")
         if auto_start:
             logger.info("Stopping vLLM server")
-            stop_vllm()
+            service_manager.stop_vllm()
+            console.print("✅ Stopped vLLM server", style="green")
         logger.info("CiteTube shutdown complete")
 
 
@@ -269,17 +146,21 @@ def start(
     console.print(Panel.fit("🚀 Starting All CiteTube Services", style="bold blue"))
     
     # Ensure .env file exists
-    ensure_env_file()
+    ensure_env_file(PROJECT_ROOT)
     
     # Start vLLM if requested
     if not skip_vllm:
-        if is_vllm_running():
+        if service_manager.is_vllm_running():
             console.print("✅ vLLM server already running", style="green")
         else:
-            vllm_pid = start_vllm()
+            env_vars = service_manager.load_env()
+            model = env_vars.get('VLLM_MODEL', 'Qwen/Qwen2.5-0.5B-Instruct')
+            console.print(f"🤖 Starting vLLM server with model: {model}")
+            
+            vllm_pid = service_manager.start_vllm()
             if vllm_pid:
                 console.print("⏳ Waiting for vLLM to start...")
-                if check_service("localhost", 8000, timeout=60):
+                if service_manager.check_service("localhost", 8000, timeout=60):
                     console.print("✅ vLLM server is ready", style="green")
                 else:
                     console.print("❌ vLLM server failed to start", style="red")
@@ -301,14 +182,14 @@ def start(
         console.print(f"❌ Failed to start CiteTube: {e}", style="red")
     finally:
         if not skip_vllm:
-            stop_vllm()
+            service_manager.stop_vllm()
 
 
 @app.command()
 def stop():
     """Stop all CiteTube services."""
     console.print("🛑 Stopping CiteTube services...")
-    stop_vllm()
+    service_manager.stop_vllm()
     console.print("✅ All services stopped", style="green")
 
 
@@ -322,23 +203,18 @@ def status():
     table.add_column("Port", style="magenta")
     table.add_column("Status", style="green")
     
-    # Check PostgreSQL
-    if check_service("localhost", 5432, timeout=1):
-        table.add_row("PostgreSQL", "5432", "✅ Running")
-    else:
-        table.add_row("PostgreSQL", "5432", "❌ Not running")
+    status_data = service_manager.get_service_status()
     
-    # Check vLLM
-    if check_service("localhost", 8000, timeout=1):
-        table.add_row("vLLM", "8000", "✅ Running")
-    else:
-        table.add_row("vLLM", "8000", "❌ Not running")
+    # Add service rows
+    services = [
+        ("PostgreSQL", "5432", status_data["postgresql"]),
+        ("vLLM", "8000", status_data["vllm"]),
+        ("CiteTube App", "7860", status_data["citetube_app"]),
+    ]
     
-    # Check CiteTube app
-    if check_service("localhost", 7860, timeout=1):
-        table.add_row("CiteTube App", "7860", "✅ Running")
-    else:
-        table.add_row("CiteTube App", "7860", "❌ Not running")
+    for name, port, running in services:
+        status_text = "✅ Running" if running else "❌ Not running"
+        table.add_row(name, port, status_text)
     
     console.print(table)
 
@@ -346,10 +222,10 @@ def status():
 @app.command()
 def logs():
     """View vLLM logs."""
-    if VLLM_LOG_FILE.exists():
+    if service_manager.vllm_log_file.exists():
         console.print("📋 vLLM Logs (press Ctrl+C to exit):")
         try:
-            subprocess.run(["tail", "-f", str(VLLM_LOG_FILE)])
+            subprocess.run(["tail", "-f", str(service_manager.vllm_log_file)])
         except KeyboardInterrupt:
             pass
     else:
@@ -378,30 +254,62 @@ def init():
 @app.command()
 def health():
     """Check the health of all services."""
-    console.print("🔍 Checking service health...", style="blue")
+    console.print("🏥 [bold blue]Checking CiteTube Health[/bold blue]")
     
     # Check database
+    console.print("📊 Checking database connection...")
     if test_connection():
-        console.print("✅ Database: Healthy", style="green")
+        console.print("✅ Database: [green]Connected[/green]")
     else:
-        console.print("❌ Database: Unhealthy", style="red")
+        console.print("❌ Database: [red]Connection failed[/red]")
     
-    # Check vLLM (optional)
+    # Check vLLM
+    console.print("🤖 Checking vLLM server...")
     try:
-        from citetube.llm.llm import test_llm_connection
+        from src.citetube.llm.llm import test_llm_connection
         if test_llm_connection():
-            console.print("✅ vLLM: Healthy", style="green")
+            console.print("✅ vLLM: [green]Running[/green]")
         else:
-            console.print("❌ vLLM: Unhealthy", style="red")
+            console.print("❌ vLLM: [red]Not accessible[/red]")
     except Exception as e:
-        console.print(f"⚠️ vLLM: Could not test ({e})", style="yellow")
+        console.print(f"❌ vLLM: [red]Error - {e}[/red]")
+    
+    # Check LangChain Agent
+    console.print("🔧 Checking LangChain Agent...")
+    try:
+        from src.citetube.llm.llm import test_agent_connection, get_agent_tools
+        agent_ok = test_agent_connection()
+        if agent_ok:
+            console.print("✅ Agent: [green]Working[/green]")
+            tools = get_agent_tools()
+            console.print(f"🛠️  Agent tools: [cyan]{len(tools)} available[/cyan]")
+            for tool in tools:
+                console.print(f"   - {tool['name']}")
+        else:
+            console.print("❌ Agent: [yellow]Not working (vLLM required)[/yellow]")
+    except Exception as e:
+        console.print(f"❌ Agent: [red]Error - {e}[/red]")
+    
+    # Check models
+    console.print("📦 Checking models...")
+    try:
+        from src.citetube.core.models import get_embedding_model
+        model = get_embedding_model()
+        model_name = getattr(model, 'model_name', getattr(model, '_model_name', 'sentence-transformers model'))
+        console.print(f"✅ Embedding model: [green]{model_name}[/green]")
+    except Exception as e:
+        console.print(f"❌ Embedding model: [red]Error - {e}[/red]")
+    
+    console.print("🎉 [bold green]Health check complete![/bold green]")
 
 
 @app.command()
 def version():
     """Show version information."""
-    from citetube import __version__
-    console.print(f"CiteTube version: {__version__}", style="blue")
+    info = get_project_info()
+    console.print(f"CiteTube version: {info['version']}", style="blue")
+    console.print(f"Author: {info['author']}", style="cyan")
+    console.print(f"Description: {info['description']}", style="green")
 
 
 if __name__ == "__main__":
